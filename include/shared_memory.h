@@ -39,8 +39,8 @@ struct shared_memory {
 	shared_memory(const shared_memory&& rhs) = delete;
 	shared_memory& operator=(const shared_memory& rhs) = delete;
 
-	shared_memory(int shmd, mmap_d * mapped)
-		: fd(shmd), d(mapped)
+	shared_memory(int shmd, const std::string & memory_name, mmap_d * mapped)
+		: fd(shmd), memory_name(memory_name), d(mapped)
 	{ }
 
 	~shared_memory()
@@ -53,7 +53,7 @@ struct shared_memory {
 				if(d->icount == 0)
 				{
 					sem_close(&d->event1);
-					shm_unlink(typeid(T).name());
+					shm_unlink(memory_name.c_str());
 
 					munmap(d, sizeof(mmap_d));
 					close(fd);
@@ -116,20 +116,20 @@ struct shared_memory {
 
 private:
 	int fd = 0;
+	std::string memory_name;
 	mmap_d * d = nullptr;
 };
 
 
 template<typename T>
-shared_memory<T> make_shared_memory() {
+shared_memory<T> make_shared_memory(const std::string& memory_name = typeid(T).name()) {
 	int shmd = 0;
-	const char * memory_name = typeid(T).name();
 	using mapping_t = typename shared_memory<T>::mmap_d;
 
 	mapping_t * d = nullptr;
 
-	if((shmd = shm_open(memory_name, O_CREAT | O_RDWR | O_EXCL, 0777)) == -1) {
-		if(errno == EEXIST && (shmd = shm_open(memory_name, O_CREAT | O_RDWR, 0777)) != -1) {
+	if((shmd = shm_open(memory_name.c_str(), O_CREAT | O_RDWR | O_EXCL, 0777)) == -1) {
+		if(errno == EEXIST && (shmd = shm_open(memory_name.c_str(), O_CREAT | O_RDWR, 0777)) != -1) {
 			void * addr = mmap(0, sizeof(mapping_t), PROT_WRITE | PROT_READ, MAP_SHARED, shmd, 0);
 			if(addr == MAP_FAILED) {
 				throw bad_shared_memory_access(strerror(errno));
@@ -166,7 +166,7 @@ shared_memory<T> make_shared_memory() {
 		d->icount = 1;
 	}
 
-	return shared_memory<T>(shmd, d);
+	return shared_memory<T>(shmd, memory_name, d);
 }
 
 #endif
