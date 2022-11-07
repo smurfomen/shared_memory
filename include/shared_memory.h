@@ -35,9 +35,17 @@ struct shared_memory {
 		type value;
 	};
 
-	shared_memory(const shared_memory& rhs) = delete;
 	shared_memory(const shared_memory&& rhs) = delete;
-	shared_memory& operator=(const shared_memory& rhs) = delete;
+
+	shared_memory(const shared_memory& rhs)
+		: fd(rhs.fd), memory_name(rhs.memory_name), d(rhs.d)
+	{
+		if(sem_wait(&d->event1) == 0)
+		{
+			++(d->icount);
+			sem_post(&d->event1);
+		}
+	}
 
 	shared_memory(int shmd, const std::string & memory_name, mmap_d * mapped)
 		: fd(shmd), memory_name(memory_name), d(mapped)
@@ -45,24 +53,7 @@ struct shared_memory {
 
 	~shared_memory()
 	{
-		if(d && fd)
-		{
-			if(sem_wait(&d->event1) == 0)
-			{
-				--(d->icount);
-				if(d->icount == 0)
-				{
-					sem_close(&d->event1);
-					shm_unlink(memory_name.c_str());
-
-					munmap(d, sizeof(mmap_d));
-					close(fd);
-				}
-				else {
-					sem_post(&d->event1);
-				}
-			}
-		}
+		deinit();
 	}
 
 	shared_memory(shared_memory&& rhs) {
@@ -71,7 +62,21 @@ struct shared_memory {
 	}
 
 
+	shared_memory& operator=(const shared_memory& rhs) {
+		if(this != &rhs) {
+			deinit();
 
+			fd = rhs.fd;
+			memory_name = rhs.memory_name;
+			d = rhs.d;
+			if(sem_wait(&d->event1) == 0)
+			{
+				++(d->icount);
+				sem_post(&d->event1);
+			}
+		}
+		return *this;
+	}
 	shared_memory& operator=(shared_memory&& rhs) {
 		if(this != &rhs){
 			std::swap(fd, rhs.fd);
@@ -115,6 +120,28 @@ struct shared_memory {
 	}
 
 private:
+
+	void deinit() {
+		if(d && fd)
+		{
+			if(sem_wait(&d->event1) == 0)
+			{
+				--(d->icount);
+				if(d->icount == 0)
+				{
+					sem_close(&d->event1);
+					shm_unlink(memory_name.c_str());
+
+					munmap(d, sizeof(mmap_d));
+					close(fd);
+				}
+				else {
+					sem_post(&d->event1);
+				}
+			}
+		}
+	}
+
 	int fd = 0;
 	std::string memory_name;
 	mmap_d * d = nullptr;
@@ -170,3 +197,4 @@ shared_memory<T> make_shared_memory(const std::string& memory_name = typeid(T).n
 }
 
 #endif
+
